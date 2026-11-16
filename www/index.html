@@ -36,6 +36,7 @@ button.armed{background:var(--danger);color:#fff}
 .x{background:none;color:var(--muted);padding:4px 10px;font-size:20px}
 .price{display:flex;align-items:center;gap:8px;margin:10px 0}
 .price input{max-width:130px}
+.mon{display:flex;align-items:center;justify-content:space-between;margin:0 0 14px}.mon b{font-size:18px}.mon button{width:48px;padding:10px 0}
 .row{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
 </style>
 </head>
@@ -43,18 +44,24 @@ button.armed{background:var(--danger);color:#fff}
 <main id="app"></main>
 <script>
 var KEY='who-paid-v1';
-var data=load(),cur=null,armed=null;
-function load(){try{var r=localStorage.getItem(KEY);if(r)return JSON.parse(r)}catch(e){}return{groups:[]}}
+var MN=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+function ym(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
+var month=ym(new Date()),cur=null,armed=null,data=load();
+function shift(m,k){var a=m.split('-'),d=new Date(+a[0],+a[1]-1+k,1);return ym(d)}
+function mlabel(m){var a=m.split('-');return MN[+a[1]-1]+' '+a[0]}
+function isPaid(p){return !!(p.months&&p.months[month])}
+function monbar(){return '<div class="mon"><button class="sec" data-act="mprev">‹</button><b>'+mlabel(month)+'</b><button class="sec" data-act="mnext">›</button></div>'}
+function load(){try{var r=localStorage.getItem(KEY);if(r){var d=JSON.parse(r);d.groups.forEach(function(g){g.people.forEach(function(p){if(!p.months)p.months={};if('paid' in p){if(p.paid)p.months[month]=true;delete p.paid}})});return d}}catch(e){}return{groups:[]}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){}}
 function uid(){return Math.random().toString(36).slice(2,9)}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function money(n){return Number(n).toLocaleString('ru-RU')}
 function grp(id){return data.groups.find(function(g){return g.id===id})}
-function stat(g){var p=g.people.filter(function(x){return x.paid}).length;return{paid:p,total:g.people.length,pct:g.people.length?Math.round(p/g.people.length*100):0}}
+function stat(g){var p=g.people.filter(isPaid).length;return{paid:p,total:g.people.length,pct:g.people.length?Math.round(p/g.people.length*100):0}}
 function render(focusId){
   var h='';
   if(!cur){
-    h+='<h1>Кто оплатил</h1>';
+    h+='<h1>Кто оплатил</h1>'+monbar();
     if(!data.groups.length)h+='<p class="muted">Групп пока нет. Создайте первую ниже.</p>';
     data.groups.forEach(function(g){var s=stat(g);
       h+='<div class="card g" data-act="open" data-id="'+g.id+'"><b>'+esc(g.name)+'</b><div class="muted">Оплатили '+s.paid+' из '+s.total+'</div><div class="bar"><i style="width:'+s.pct+'%"></i></div></div>'});
@@ -62,13 +69,13 @@ function render(focusId){
   }else{
     var g=grp(cur);if(!g){cur=null;return render()}
     var s=stat(g),sum=g.price?' · собрано '+money(s.paid*g.price)+' из '+money(s.total*g.price):'';
-    h+='<button class="back" data-act="home">‹ Все группы</button><h1>'+esc(g.name)+'</h1>';
+    h+='<button class="back" data-act="home">‹ Все группы</button><h1>'+esc(g.name)+'</h1>'+monbar();
     h+='<div class="muted">Оплатили '+s.paid+' из '+s.total+sum+'</div><div class="bar"><i style="width:'+s.pct+'%"></i></div>';
     h+='<div class="price"><span class="muted">Сумма с человека:</span><input id="pr" type="number" inputmode="decimal" min="0" placeholder="0" value="'+(g.price||'')+'"></div>';
     g.people.forEach(function(p){
-      h+='<div class="p'+(p.paid?' paid':'')+'" data-act="tog" data-id="'+p.id+'"><span class="chk">'+(p.paid?'✓':'')+'</span><span class="n">'+esc(p.name)+'</span><button class="x" data-act="delp" data-id="'+p.id+'" aria-label="Удалить">×</button></div>'});
+      h+='<div class="p'+(isPaid(p)?' paid':'')+'" data-act="tog" data-id="'+p.id+'"><span class="chk">'+(isPaid(p)?'✓':'')+'</span><span class="n">'+esc(p.name)+'</span><button class="x" data-act="delp" data-id="'+p.id+'" aria-label="Удалить">×</button></div>'});
     h+='<div class="add"><input id="np" placeholder="Имя человека" maxlength="60"><button data-act="addp">Добавить</button></div>';
-    h+='<div class="row"><button class="sec" data-act="reset">Сбросить отметки</button><button class="del'+(armed==='g'?' armed':'')+'" data-act="delg">'+(armed==='g'?'Точно удалить?':'Удалить группу')+'</button></div>';
+    h+='<div class="row"><button class="sec" data-act="reset">Снять отметки за месяц</button><button class="del'+(armed==='g'?' armed':'')+'" data-act="delg">'+(armed==='g'?'Точно удалить?':'Удалить группу')+'</button></div>';
   }
   document.getElementById('app').innerHTML=h;
   if(focusId){var e=document.getElementById(focusId);if(e)e.focus()}
@@ -77,14 +84,16 @@ document.getElementById('app').addEventListener('click',function(ev){
   var t=ev.target.closest('[data-act]');if(!t)return;
   var a=t.dataset.act,id=t.dataset.id,g=cur&&grp(cur);
   if(a!=='delg'&&a!=='delp')armed=null;
+  if(a==='mprev'){month=shift(month,-1);render();return}
+  if(a==='mnext'){month=shift(month,1);render();return}
   if(a==='open'){cur=id;render()}
   else if(a==='home'){cur=null;render()}
   else if(a==='addg'){var v=document.getElementById('ng').value.trim();if(!v)return;data.groups.push({id:uid(),name:v,price:0,people:[]});save();render('ng')}
-  else if(a==='addp'){var v2=document.getElementById('np').value.trim();if(!v2)return;g.people.push({id:uid(),name:v2,paid:false});save();render('np')}
-  else if(a==='tog'){var p=g.people.find(function(x){return x.id===id});p.paid=!p.paid;save();render()}
+  else if(a==='addp'){var v2=document.getElementById('np').value.trim();if(!v2)return;g.people.push({id:uid(),name:v2,months:{}});save();render('np')}
+  else if(a==='tog'){var p=g.people.find(function(x){return x.id===id});if(!p.months)p.months={};if(p.months[month])delete p.months[month];else p.months[month]=true;save();render()}
   else if(a==='delp'){ev.stopPropagation();if(armed===id){g.people=g.people.filter(function(x){return x.id!==id});armed=null;save()}else{armed=id;setTimeout(function(){if(armed===id){armed=null;render()}},2500)}
     render();if(armed===id){var el=document.querySelector('[data-act="delp"][data-id="'+id+'"]');if(el){el.textContent='?';el.style.color='var(--danger)'}}}
-  else if(a==='reset'){g.people.forEach(function(x){x.paid=false});save();render()}
+  else if(a==='reset'){g.people.forEach(function(x){if(x.months)delete x.months[month]});save();render()}
   else if(a==='delg'){if(armed==='g'){data.groups=data.groups.filter(function(x){return x.id!==cur});cur=null;armed=null;save();render()}else{armed='g';render();setTimeout(function(){if(armed==='g'){armed=null;render()}},2500)}}
 });
 document.getElementById('app').addEventListener('change',function(ev){
